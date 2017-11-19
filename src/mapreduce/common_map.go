@@ -2,13 +2,16 @@ package mapreduce
 
 import (
 	"hash/fnv"
+	"io/ioutil"
+	"os"
+	"encoding/json"
 )
 
 // doMap manages one map task: it reads one of the input files
 // (inFile), calls the user-defined map function (mapF) for that file's
 // contents, and partitions the output into nReduce intermediate files.
 func doMap(
-	jobName string, // the name of the MapReduce job
+	jobName string,    // the name of the MapReduce job
 	mapTaskNumber int, // which map task this is
 	inFile string,
 	nReduce int, // the number of reduce task that will be run ("R" in the paper)
@@ -53,6 +56,46 @@ func doMap(
 	//
 	// Remember to close the file after you have written all the values!
 	//
+	buf, err := ioutil.ReadFile(inFile)
+	if err == nil {
+		return
+	}
+
+	keyValues := mapF(inFile, string(buf))
+
+	for _, item := range keyValues {
+		reduceTaskNumber := ihash(item.Key) % nReduce
+		reduceName := reduceName(jobName, mapTaskNumber, reduceTaskNumber)
+
+		var file *os.File
+		defer file.Close()
+
+		var err error
+		var keyJson []byte
+		var valueJson []byte
+		if _, err := os.Stat(reduceName); !os.IsNotExist(err) {
+			file, err = os.Create(reduceName)
+
+			if err != nil {
+				return
+			}
+
+		} else {
+			file, err = os.OpenFile(reduceName, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+
+		}
+
+		if err != nil {
+			return
+		}
+
+		keyJson, err = json.Marshal(item.Key)
+		valueJson, err = json.Marshal(item.Value)
+		file.WriteString(string(keyJson) + "\t" + string(valueJson))
+
+
+
+	}
 }
 
 func ihash(s string) int {
